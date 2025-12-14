@@ -1,0 +1,140 @@
+---
+# Playbook to install AWS Load Balancer Controller and EBS CSI Driver
+# Run this AFTER the main cluster is up and all nodes are Ready
+
+- name: Install AWS Cloud Controllers
+  hosts: master
+  become: yes
+  tasks:
+    - name: Check if Helm is installed
+      command: which helm
+      register: helm_check
+      ignore_errors: yes
+
+    - name: Download Helm installation script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: '0700'
+      when: helm_check.rc != 0
+
+    - name: Install Helm
+      command: /tmp/get_helm.sh
+      when: helm_check.rc != 0
+
+    - name: Create service account for AWS Load Balancer Controller
+      shell: |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: aws-load-balancer-controller
+          namespace: kube-system
+        EOF
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Install AWS Load Balancer Controller CRDs
+      command: kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller/crds?ref=master"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Add EKS Helm repository
+      command: helm repo add eks https://aws.github.io/eks-charts
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Update Helm repositories
+      command: helm repo update
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Install AWS Load Balancer Controller
+      command: >
+        helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller
+        -n kube-system
+        --set clusterName=phoenix-cluster
+        --set serviceAccount.create=false
+        --set serviceAccount.name=aws-load-balancer-controller
+        --set region=us-east-1
+        --set vpcId={{ lookup('env', 'VPC_ID') }}
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      ignore_errors: yes
+
+    - name: Add AWS EBS CSI Driver Helm repository
+      command: helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Update Helm repositories
+      command: helm repo update
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Install EBS CSI Driver
+      command: >
+        helm upgrade --install aws-ebs-csi-driver aws-ebs-csi-driver/aws-ebs-csi-driver
+        -n kube-system
+        --set enableVolumeScheduling=true
+        --set enableVolumeResizing=true
+        --set enableVolumeSnapshot=true
+        --set controller.region=us-east-1
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Wait for AWS Load Balancer Controller to be ready
+      shell: kubectl get deployment -n kube-system aws-load-balancer-controller -o jsonpath='{.status.readyReplicas}' || echo "0"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: alb_ready
+      until: alb_ready.stdout|int > 0
+      retries: 30
+      delay: 10
+      ignore_errors: yes
+
+    - name: Wait for EBS CSI Driver controller to be ready
+      shell: kubectl get deployment -n kube-system ebs-csi-controller -o jsonpath='{.status.readyReplicas}' || echo "0"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: ebs_ready
+      until: ebs_ready.stdout|int > 0
+      retries: 30
+      delay: 10
+
+    - name: Create EBS StorageClass
+      shell: |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: storage.k8s.io/v1
+        kind: StorageClass
+        metadata:
+          name: ebs-sc
+          annotations:
+            storageclass.kubernetes.io/is-default-class: "true"
+        provisioner: ebs.csi.aws.com
+        parameters:
+          type: gp3
+          encrypted: "true"
+        volumeBindingMode: WaitForFirstConsumer
+        allowVolumeExpansion: true
+        EOF
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: Display installed controllers
+      shell: |
+        echo "=== AWS Load Balancer Controller ==="
+        kubectl get deployment -n kube-system aws-load-balancer-controller
+        echo ""
+        echo "=== EBS CSI Driver Controller ==="
+        kubectl get deployment -n kube-system ebs-csi-controller
+        echo ""
+        echo "=== Storage Classes ==="
+        kubectl get storageclass
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: controllers_status
+
+    - name: Show controllers status
+      debug:
+        msg: "{{ controllers_status.stdout_lines }}"

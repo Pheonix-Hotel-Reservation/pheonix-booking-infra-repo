@@ -1,0 +1,304 @@
+---
+# Master node initialization with AWS Cloud Controller Manager support
+- name: Check if Kubernetes is already initialized
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: k8s_initialized
+
+- name: Initialize Kubernetes cluster with external cloud provider
+  command: >
+    kubeadm init
+    --pod-network-cidr=192.168.0.0/16
+    --apiserver-advertise-address={{ ansible_default_ipv4.address }}
+    --node-name={{ hostvars[inventory_hostname]['private_dns'] }}
+  when: not k8s_initialized.stat.exists
+  register: kubeadm_init
+
+- name: Create .kube directory for root
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+
+- name: Copy admin.conf to root's kube config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: '0644'
+
+- name: Create .kube directory for ubuntu user
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Copy admin.conf to ubuntu's kube config
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/ubuntu/.kube/config
+    remote_src: yes
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+
+- name: Wait for Kubernetes API to be available
+  wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: 6443
+    timeout: 300
+
+- name: Install Calico CNI
+  command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: not k8s_initialized.stat.exists
+
+- name: Wait for Calico pods to be ready
+  shell: kubectl get pods -n kube-system -l k8s-app=calico-node --field-selector=status.phase=Running | grep -c calico-node || true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: calico_pods
+  until: calico_pods.stdout|int > 0
+  retries: 30
+  delay: 10
+
+# --- FIX START: EMBEDDED CONFIGURATION WITH WORKING IMAGE ---
+
+- name: Create AWS Cloud Controller Manager Manifest
+  copy:
+    dest: /tmp/aws-ccm-full.yaml
+    content: |
+      ---
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: cloud-controller-manager
+        namespace: kube-system
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: system:cloud-controller-manager
+      rules:
+      - apiGroups:
+        - ""
+        resources:
+        - events
+        verbs:
+        - create
+        - patch
+        - update
+      - apiGroups:
+        - ""
+        resources:
+        - nodes
+        verbs:
+        - '*'
+      - apiGroups:
+        - ""
+        resources:
+        - nodes/status
+        verbs:
+        - patch
+      - apiGroups:
+        - ""
+        resources:
+        - services
+        verbs:
+        - list
+        - patch
+        - update
+        - watch
+      - apiGroups:
+        - ""
+        resources:
+        - services/status
+        verbs:
+        - list
+        - patch
+        - update
+        - watch
+      - apiGroups:
+        - ""
+        resources:
+        - serviceaccounts
+        verbs:
+        - create
+        - get
+      - apiGroups:
+        - ""
+        resources:
+        - persistentvolumes
+        verbs:
+        - get
+        - list
+        - update
+        - watch
+      - apiGroups:
+        - ""
+        resources:
+        - endpoints
+        verbs:
+        - create
+        - get
+        - list
+        - watch
+        - update
+      - apiGroups:
+        - coordination.k8s.io
+        resources:
+        - leases
+        verbs:
+        - create
+        - get
+        - list
+        - watch
+        - update
+      - apiGroups:
+        - ""
+        resources:
+        - serviceaccounts/token
+        verbs:
+        - create
+      - apiGroups:
+        - ""
+        resources:
+        - configmaps
+        verbs:
+        - get
+        - list
+        - watch
+      ---
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: system:cloud-controller-manager
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:cloud-controller-manager
+      subjects:
+      - kind: ServiceAccount
+        name: cloud-controller-manager
+        namespace: kube-system
+      ---
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        labels:
+          k8s-app: aws-cloud-controller-manager
+        name: aws-cloud-controller-manager
+        namespace: kube-system
+      spec:
+        selector:
+          matchLabels:
+            k8s-app: aws-cloud-controller-manager
+        updateStrategy:
+          type: RollingUpdate
+        template:
+          metadata:
+            labels:
+              k8s-app: aws-cloud-controller-manager
+          spec:
+            serviceAccountName: cloud-controller-manager
+            hostNetwork: true
+            dnsPolicy: Default
+            tolerations:
+            - key: node.cloudprovider.kubernetes.io/uninitialized
+              value: "true"
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+            containers:
+            - name: aws-cloud-controller-manager
+              # FIX: Using v1.26.1 which is guaranteed to exist in the registry
+              image: registry.k8s.io/provider-aws/cloud-controller-manager:v1.26.1
+              args:
+              - --v=2
+              - --cloud-provider=aws
+              - --configure-cloud-routes=false
+              - --use-service-account-credentials=true
+              - --leader-elect=true
+              resources:
+                requests:
+                  cpu: 200m
+  
+- name: Apply AWS Cloud Controller Manager
+  command: kubectl apply -f /tmp/aws-ccm-full.yaml
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+# --- FIX END ---
+
+- name: Wait for AWS CCM to be running
+  shell: kubectl get pods -n kube-system -l k8s-app=aws-cloud-controller-manager --field-selector=status.phase=Running | grep -c aws-cloud-controller-manager || true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ccm_pods
+  until: ccm_pods.stdout|int > 0
+  retries: 30
+  delay: 10
+
+- name: Wait for master node to become Ready (CCM will remove taints)
+  shell: kubectl get nodes | grep -i ready | wc -l
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ready_nodes
+  until: ready_nodes.stdout|int > 0
+  retries: 30
+  delay: 10
+
+- name: Wait for CCM to set provider ID on master node
+  shell: kubectl get nodes -o jsonpath='{.items[0].spec.providerID}'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: provider_id
+  until: provider_id.stdout != "" and provider_id.stdout is match("^aws://.*")
+  retries: 60
+  delay: 10
+  failed_when: false
+
+- name: Display provider ID status
+  debug:
+    msg: "Master node provider ID: {{ provider_id.stdout | default('NOT SET - CCM may need more time') }}"
+
+- name: Verify provider ID is set
+  assert:
+    that:
+      - provider_id.stdout != ""
+      - provider_id.stdout is match("^aws://.*")
+    fail_msg: "CRITICAL: Master node does not have AWS provider ID. CCM is not working properly!"
+    success_msg: "SUCCESS: Master node has AWS provider ID: {{ provider_id.stdout }}"
+
+- name: Generate join command
+  command: kubeadm token create --print-join-command
+  register: join_command_output
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+
+- name: Save join command to file
+  copy:
+    content: "{{ join_command_output.stdout }}"
+    dest: /tmp/kubeadm_join_command.sh
+    mode: '0755'
+
+- name: Fetch join command to local machine
+  fetch:
+    src: /tmp/kubeadm_join_command.sh
+    dest: /tmp/kubeadm_join_command.sh
+    flat: yes
+
+- name: Display cluster status
+  command: kubectl get nodes
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cluster_status
+
+- name: Show cluster nodes
+  debug:
+    msg: "{{ cluster_status.stdout_lines }}"

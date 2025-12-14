@@ -1,0 +1,36 @@
+---
+# Worker node tasks - join the Kubernetes cluster
+- name: Check if node is already joined to cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Copy join command from master
+  copy:
+    src: /tmp/kubeadm_join_command.sh
+    dest: /tmp/kubeadm_join_command.sh
+    mode: '0755'
+  when: not kubelet_conf.stat.exists
+
+- name: Join node to Kubernetes cluster
+  command: sh /tmp/kubeadm_join_command.sh
+  when: not kubelet_conf.stat.exists
+  register: join_result
+
+- name: Display join result
+  debug:
+    msg: "{{ join_result.stdout_lines }}"
+  when: join_result is defined and join_result.stdout_lines is defined
+
+- name: Wait for kubelet to be running
+  systemd:
+    name: kubelet
+    state: started
+  register: kubelet_status
+  until: kubelet_status.status.ActiveState == "active"
+  retries: 10
+  delay: 5
+
+- name: Display worker node join completion
+  debug:
+    msg: "Worker node {{ hostvars[inventory_hostname]['private_dns'] }} has joined the cluster and kubelet is running"
