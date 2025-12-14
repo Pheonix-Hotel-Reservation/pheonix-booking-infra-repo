@@ -16,10 +16,16 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
-variable "instance_type" {
-  description = "EC2 instance type for nodes"
+variable "master_instance_type" {
+  description = "EC2 instance type for control plane node"
   type        = string
   default     = "t3.large"
+}
+
+variable "worker_instance_type" {
+  description = "EC2 instance type for worker nodes"
+  type        = string
+  default     = "t3.xlarge"
 }
 
 variable "node_count" {
