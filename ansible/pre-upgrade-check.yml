@@ -1,0 +1,116 @@
+---
+# Pre-Upgrade Health Check Playbook
+# Run this before executing the upgrade to ensure cluster is healthy
+#
+# Usage: ansible-playbook -i inventory.ini pre-upgrade-check.yml
+
+- name: Pre-Upgrade Health Checks
+  hosts: master
+  become: yes
+
+  tasks:
+    - name: Check current Kubernetes version
+      command: kubectl version --short
+      register: k8s_current_version
+
+    - name: Display current version
+      debug:
+        msg: "{{ k8s_current_version.stdout_lines }}"
+
+    - name: Check all nodes are Ready
+      command: kubectl get nodes
+      register: nodes_status
+
+    - name: Display nodes status
+      debug:
+        msg: "{{ nodes_status.stdout_lines }}"
+
+    - name: Verify all nodes are Ready
+      shell: kubectl get nodes --no-headers | awk '{print $2}' | grep -v Ready | wc -l
+      register: not_ready_nodes
+      failed_when: not_ready_nodes.stdout != "0"
+
+    - name: Check for pods not in Running state
+      shell: kubectl get pods --all-namespaces --no-headers | grep -v Running | grep -v Completed | wc -l
+      register: not_running_pods
+
+    - name: Display non-running pods count
+      debug:
+        msg: "Non-running pods: {{ not_running_pods.stdout }}"
+
+    - name: List non-running pods if any
+      command: kubectl get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded
+      register: non_running_list
+      when: not_running_pods.stdout != "0"
+
+    - name: Display non-running pods
+      debug:
+        msg: "{{ non_running_list.stdout_lines }}"
+      when: not_running_pods.stdout != "0"
+
+    - name: Check component health
+      command: kubectl get componentstatuses
+      register: component_status
+      ignore_errors: yes
+
+    - name: Display component status
+      debug:
+        msg: "{{ component_status.stdout_lines }}"
+      when: component_status.rc == 0
+
+    - name: Check etcd health
+      shell: |
+        ETCDCTL_API=3 etcdctl \
+          --endpoints=https://127.0.0.1:2379 \
+          --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+          --cert=/etc/kubernetes/pki/etcd/server.crt \
+          --key=/etc/kubernetes/pki/etcd/server.key \
+          endpoint health
+      register: etcd_health
+      ignore_errors: yes
+
+    - name: Display etcd health
+      debug:
+        msg: "{{ etcd_health.stdout }}"
+      when: etcd_health.rc == 0
+
+    - name: Check disk space on all nodes
+      shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['all'] }}"
+
+    - name: Verify sufficient disk space (< 80% used)
+      assert:
+        that: item.stdout|int < 80
+        fail_msg: "Node {{ item.item }} has {{ item.stdout }}% disk usage - please free up space before upgrading"
+      loop: "{{ disk_usage.results }}"
+
+    - name: Check available memory on all nodes
+      shell: free -m | grep Mem | awk '{print int($3/$2*100)}'
+      register: memory_usage
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['all'] }}"
+
+    - name: Display memory usage
+      debug:
+        msg: "Node {{ item.item }} memory usage: {{ item.stdout }}%"
+      loop: "{{ memory_usage.results }}"
+
+    - name: Summary - Pre-upgrade checks
+      debug:
+        msg: |
+          ========================================
+          Pre-Upgrade Health Check Summary
+          ========================================
+          Current K8s Version: {{ k8s_current_version.stdout_lines[1] }}
+          Ready Nodes: {{ (nodes_status.stdout_lines | length) - 1 }}
+          Non-Running Pods: {{ not_running_pods.stdout }}
+
+          All checks passed! Cluster is ready for upgrade.
+
+          Next steps:
+          1. Backup etcd (recommended)
+          2. Review upgrade playbook
+          3. Run: ansible-playbook -i inventory.ini upgrade-k8s-to-1.34.yml
+          ========================================

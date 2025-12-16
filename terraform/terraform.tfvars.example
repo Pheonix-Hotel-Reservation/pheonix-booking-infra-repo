@@ -1,0 +1,28 @@
+# Example Terraform Variables
+# Copy this file to terraform.tfvars and customize for your environment
+# DO NOT commit terraform.tfvars to git (it's in .gitignore)
+
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Cluster Configuration
+cluster_name = "phoenix-cluster"
+
+# VPC Configuration
+vpc_cidr = "10.0.0.0/16"
+
+# EC2 Instance Configuration
+master_instance_type = "t3.large"
+worker_instance_type = "t3.xlarge"
+node_count           = 3
+
+# SSH Key Configuration
+# Make sure this key exists in AWS before applying
+ssh_key_name        = "phoenix-k8s-key"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Tags (optional - default tags are already configured in provider.tf)
+# additional_tags = {
+#   Team        = "DevOps"
+#   CostCenter  = "Engineering"
+# }

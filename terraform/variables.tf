@@ -31,11 +31,17 @@ variable "worker_instance_type" {
 variable "node_count" {
   description = "Number of Kubernetes nodes"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "ssh_key_name" {
   description = "SSH key name for EC2 instances"
   type        = string
   default     = "phoenix-k8s-key"
+}
+
+variable "ssh_public_key_path" {
+  description = "Path to SSH public key file"
+  type        = string
+  default     = "~/.ssh/id_rsa.pub"
 }

@@ -1,0 +1,155 @@
+---
+# Kubernetes version upgrade tasks
+# This role upgrades Kubernetes to a specified version
+
+- name: Display current and target versions
+  debug:
+    msg: "Upgrading Kubernetes from {{ current_k8s_version }} to {{ target_k8s_version }}"
+
+- name: Unhold Kubernetes packages
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: install
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Remove old Kubernetes repository
+  file:
+    path: /etc/apt/sources.list.d/kubernetes.list
+    state: absent
+
+- name: Remove old Kubernetes apt key
+  file:
+    path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    state: absent
+
+- name: Add new Kubernetes apt key for version {{ target_k8s_version }}
+  apt_key:
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ target_k8s_version }}/deb/Release.key"
+    state: present
+    keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Add new Kubernetes repository for version {{ target_k8s_version }}
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ target_k8s_version }}/deb/ /"
+    state: present
+    filename: kubernetes
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+
+# Master node upgrade tasks
+- name: Upgrade kubeadm on master
+  apt:
+    name: "kubeadm={{ target_k8s_version }}.*"
+    state: present
+    update_cache: yes
+  when: inventory_hostname in groups['master']
+
+- name: Check kubeadm version on master
+  command: kubeadm version -o short
+  register: kubeadm_version
+  when: inventory_hostname in groups['master']
+
+- name: Display kubeadm version
+  debug:
+    msg: "kubeadm version: {{ kubeadm_version.stdout }}"
+  when: inventory_hostname in groups['master']
+
+- name: Run kubeadm upgrade plan on master
+  command: kubeadm upgrade plan
+  register: upgrade_plan
+  when: inventory_hostname in groups['master']
+  changed_when: false
+
+- name: Display upgrade plan
+  debug:
+    msg: "{{ upgrade_plan.stdout_lines }}"
+  when: inventory_hostname in groups['master']
+
+- name: Apply kubeadm upgrade on master
+  command: "kubeadm upgrade apply v{{ target_k8s_version }}.0 -y"
+  register: upgrade_apply
+  when: inventory_hostname in groups['master']
+
+- name: Display upgrade apply output
+  debug:
+    msg: "{{ upgrade_apply.stdout_lines }}"
+  when: inventory_hostname in groups['master']
+
+- name: Upgrade kubelet and kubectl on master
+  apt:
+    name:
+      - "kubelet={{ target_k8s_version }}.*"
+      - "kubectl={{ target_k8s_version }}.*"
+    state: present
+    update_cache: yes
+  when: inventory_hostname in groups['master']
+
+- name: Restart kubelet on master
+  systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: yes
+  when: inventory_hostname in groups['master']
+
+# Worker node upgrade tasks
+- name: Drain worker node
+  command: "kubectl drain {{ hostvars[inventory_hostname]['private_dns'] }} --ignore-daemonsets --delete-emptydir-data"
+  delegate_to: "{{ groups['master'][0] }}"
+  when: inventory_hostname in groups['workers']
+
+- name: Upgrade kubeadm on worker
+  apt:
+    name: "kubeadm={{ target_k8s_version }}.*"
+    state: present
+    update_cache: yes
+  when: inventory_hostname in groups['workers']
+
+- name: Upgrade kubelet config on worker
+  command: kubeadm upgrade node
+  when: inventory_hostname in groups['workers']
+
+- name: Upgrade kubelet and kubectl on worker
+  apt:
+    name:
+      - "kubelet={{ target_k8s_version }}.*"
+      - "kubectl={{ target_k8s_version }}.*"
+    state: present
+    update_cache: yes
+  when: inventory_hostname in groups['workers']
+
+- name: Restart kubelet on worker
+  systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: yes
+  when: inventory_hostname in groups['workers']
+
+- name: Uncordon worker node
+  command: "kubectl uncordon {{ hostvars[inventory_hostname]['private_dns'] }}"
+  delegate_to: "{{ groups['master'][0] }}"
+  when: inventory_hostname in groups['workers']
+
+- name: Hold Kubernetes packages at new version
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Wait for all nodes to be ready
+  command: kubectl get nodes
+  register: nodes_status
+  delegate_to: "{{ groups['master'][0] }}"
+  run_once: true
+
+- name: Display nodes status
+  debug:
+    msg: "{{ nodes_status.stdout_lines }}"
+  run_once: true

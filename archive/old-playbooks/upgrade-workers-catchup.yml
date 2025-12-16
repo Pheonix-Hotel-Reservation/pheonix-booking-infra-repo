@@ -1,0 +1,108 @@
+---
+# Upgrade workers to catch up with master (1.29 -> 1.32)
+- name: Upgrade Workers to 1.32 (Catchup)
+  hosts: workers
+  become: yes
+  serial: 1
+
+  tasks:
+    # Upgrade to 1.30
+    - name: Upgrade worker to 1.30
+      block:
+        - name: Drain node
+          command: "kubectl drain {{ hostvars[inventory_hostname]['private_dns'] }} --ignore-daemonsets --delete-emptydir-data --disable-eviction"
+          delegate_to: "{{ groups['master'][0] }}"
+
+        - name: Unhold packages
+          dpkg_selections:
+            name: "{{ item }}"
+            selection: install
+          loop: [kubelet, kubeadm, kubectl]
+
+        - name: Setup 1.30 repository
+          shell: |
+            rm -f /etc/apt/sources.list.d/kubernetes.list /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+            apt-get update
+            apt-get install -y kubeadm=1.30.* kubelet=1.30.* kubectl=1.30.*
+            kubeadm upgrade node
+            systemctl restart kubelet
+            apt-mark hold kubelet kubeadm kubectl
+
+        - name: Uncordon node
+          command: "kubectl uncordon {{ hostvars[inventory_hostname]['private_dns'] }}"
+          delegate_to: "{{ groups['master'][0] }}"
+
+        - pause:
+            seconds: 10
+
+    # Upgrade to 1.31
+    - name: Upgrade worker to 1.31
+      block:
+        - name: Drain node
+          command: "kubectl drain {{ hostvars[inventory_hostname]['private_dns'] }} --ignore-daemonsets --delete-emptydir-data --disable-eviction"
+          delegate_to: "{{ groups['master'][0] }}"
+
+        - name: Unhold packages
+          dpkg_selections:
+            name: "{{ item }}"
+            selection: install
+          loop: [kubelet, kubeadm, kubectl]
+
+        - name: Setup 1.31 repository
+          shell: |
+            rm -f /etc/apt/sources.list.d/kubernetes.list /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+            apt-get update
+            apt-get install -y kubeadm=1.31.* kubelet=1.31.* kubectl=1.31.*
+            kubeadm upgrade node
+            systemctl restart kubelet
+            apt-mark hold kubelet kubeadm kubectl
+
+        - name: Uncordon node
+          command: "kubectl uncordon {{ hostvars[inventory_hostname]['private_dns'] }}"
+          delegate_to: "{{ groups['master'][0] }}"
+
+        - pause:
+            seconds: 10
+
+    # Upgrade to 1.32
+    - name: Upgrade worker to 1.32
+      block:
+        - name: Drain node
+          command: "kubectl drain {{ hostvars[inventory_hostname]['private_dns'] }} --ignore-daemonsets --delete-emptydir-data --disable-eviction"
+          delegate_to: "{{ groups['master'][0] }}"
+
+        - name: Unhold packages
+          dpkg_selections:
+            name: "{{ item }}"
+            selection: install
+          loop: [kubelet, kubeadm, kubectl]
+
+        - name: Setup 1.32 repository
+          shell: |
+            rm -f /etc/apt/sources.list.d/kubernetes.list /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+            echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list
+            apt-get update
+            apt-get install -y kubeadm=1.32.* kubelet=1.32.* kubectl=1.32.*
+            kubeadm upgrade node
+            systemctl restart kubelet
+            apt-mark hold kubelet kubeadm kubectl
+
+        - name: Uncordon node
+          command: "kubectl uncordon {{ hostvars[inventory_hostname]['private_dns'] }}"
+          delegate_to: "{{ groups['master'][0] }}"
+
+- name: Verify all nodes on 1.32
+  hosts: master
+  become: yes
+  tasks:
+    - name: Check nodes
+      command: kubectl get nodes
+      register: nodes
+
+    - debug:
+        msg: "{{ nodes.stdout_lines }}"

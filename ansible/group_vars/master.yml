@@ -1,0 +1,23 @@
+---
+# Variables specific to Kubernetes master nodes
+
+# Control Plane Configuration
+api_server_bind_port: 6443
+api_server_advertise_address: "{{ ansible_default_ipv4.address }}"
+
+# kubeadm Configuration
+kubeadm_config_api_version: "kubeadm.k8s.io/v1beta4"
+
+# API Server Extra Args
+api_server_extra_args:
+  - name: authorization-mode
+    value: Node,RBAC
+
+# Controller Manager Configuration
+controller_manager_extra_args: []
+
+# Scheduler Configuration
+scheduler_extra_args: []
+
+# Feature Gates (if needed)
+feature_gates: {}

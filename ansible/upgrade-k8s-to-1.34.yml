@@ -1,0 +1,204 @@
+---
+# Kubernetes Upgrade Playbook: 1.29.15 -> 1.34.1
+# This playbook performs sequential upgrades through each minor version
+#
+# Usage: ansible-playbook -i inventory.ini upgrade-k8s-to-1.34.yml
+#
+# IMPORTANT: This playbook will:
+# - Upgrade through 5 Kubernetes versions sequentially
+# - Drain and uncordon worker nodes during upgrades
+# - Take approximately 2-3 hours to complete
+# - Should be run during a maintenance window
+
+- name: Kubernetes Sequential Upgrade to 1.34.1
+  hosts: all
+  become: yes
+  serial: 1  # Process one host at a time to minimize disruption
+
+  vars:
+    upgrade_sequence:
+      - { from: "1.29", to: "1.30" }
+      - { from: "1.30", to: "1.31" }
+      - { from: "1.31", to: "1.32" }
+      - { from: "1.32", to: "1.33" }
+      - { from: "1.33", to: "1.34" }
+
+  tasks:
+    - name: Display upgrade plan
+      debug:
+        msg: |
+          ========================================
+          Kubernetes Upgrade Plan
+          ========================================
+          Current Version: 1.29.15
+          Target Version:  1.34.1
+
+          Upgrade Path:
+          {% for step in upgrade_sequence %}
+            Step {{ loop.index }}: {{ step.from }} -> {{ step.to }}
+          {% endfor %}
+
+          This will take approximately 2-3 hours.
+          ========================================
+      run_once: true
+
+    # Skipping confirmation pause for automated execution
+    # - name: Pause for confirmation
+    #   pause:
+    #     prompt: |
+    #
+    #       Are you ready to proceed with the upgrade?
+    #       Press ENTER to continue or Ctrl+C to abort
+    #   run_once: true
+
+    # Step 1: Upgrade 1.29 -> 1.30
+    - name: Upgrade to Kubernetes 1.30
+      include_role:
+        name: k8s-upgrade
+      vars:
+        current_k8s_version: "1.29"
+        target_k8s_version: "1.30"
+      tags: ['upgrade-1.30']
+
+    - name: Wait 30 seconds for cluster to stabilize after 1.30 upgrade
+      pause:
+        seconds: 30
+      run_once: true
+
+    - name: Verify cluster health after 1.30 upgrade
+      command: kubectl get nodes
+      register: nodes_1_30
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display cluster status after 1.30
+      debug:
+        msg: "{{ nodes_1_30.stdout_lines }}"
+      run_once: true
+
+    # Step 2: Upgrade 1.30 -> 1.31
+    - name: Upgrade to Kubernetes 1.31
+      include_role:
+        name: k8s-upgrade
+      vars:
+        current_k8s_version: "1.30"
+        target_k8s_version: "1.31"
+      tags: ['upgrade-1.31']
+
+    - name: Wait 30 seconds for cluster to stabilize after 1.31 upgrade
+      pause:
+        seconds: 30
+      run_once: true
+
+    - name: Verify cluster health after 1.31 upgrade
+      command: kubectl get nodes
+      register: nodes_1_31
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display cluster status after 1.31
+      debug:
+        msg: "{{ nodes_1_31.stdout_lines }}"
+      run_once: true
+
+    # Step 3: Upgrade 1.31 -> 1.32
+    - name: Upgrade to Kubernetes 1.32
+      include_role:
+        name: k8s-upgrade
+      vars:
+        current_k8s_version: "1.31"
+        target_k8s_version: "1.32"
+      tags: ['upgrade-1.32']
+
+    - name: Wait 30 seconds for cluster to stabilize after 1.32 upgrade
+      pause:
+        seconds: 30
+      run_once: true
+
+    - name: Verify cluster health after 1.32 upgrade
+      command: kubectl get nodes
+      register: nodes_1_32
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display cluster status after 1.32
+      debug:
+        msg: "{{ nodes_1_32.stdout_lines }}"
+      run_once: true
+
+    # Step 4: Upgrade 1.32 -> 1.33
+    - name: Upgrade to Kubernetes 1.33
+      include_role:
+        name: k8s-upgrade
+      vars:
+        current_k8s_version: "1.32"
+        target_k8s_version: "1.33"
+      tags: ['upgrade-1.33']
+
+    - name: Wait 30 seconds for cluster to stabilize after 1.33 upgrade
+      pause:
+        seconds: 30
+      run_once: true
+
+    - name: Verify cluster health after 1.33 upgrade
+      command: kubectl get nodes
+      register: nodes_1_33
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display cluster status after 1.33
+      debug:
+        msg: "{{ nodes_1_33.stdout_lines }}"
+      run_once: true
+
+    # Step 5: Upgrade 1.33 -> 1.34
+    - name: Upgrade to Kubernetes 1.34.1
+      include_role:
+        name: k8s-upgrade
+      vars:
+        current_k8s_version: "1.33"
+        target_k8s_version: "1.34"
+      tags: ['upgrade-1.34']
+
+    - name: Wait 30 seconds for cluster to stabilize after 1.34 upgrade
+      pause:
+        seconds: 30
+      run_once: true
+
+    - name: Final cluster health verification
+      command: kubectl get nodes -o wide
+      register: nodes_final
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display final cluster status
+      debug:
+        msg: "{{ nodes_final.stdout_lines }}"
+      run_once: true
+
+    - name: Verify final Kubernetes version
+      command: kubectl version --short
+      register: k8s_version_final
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display final Kubernetes version
+      debug:
+        msg: |
+          ========================================
+          Upgrade Complete!
+          ========================================
+          {{ k8s_version_final.stdout }}
+          ========================================
+      run_once: true
+
+    - name: Check all pods across all namespaces
+      command: kubectl get pods --all-namespaces
+      register: all_pods
+      delegate_to: "{{ groups['master'][0] }}"
+      run_once: true
+
+    - name: Display pod status
+      debug:
+        msg: "{{ all_pods.stdout_lines }}"
+      run_once: true

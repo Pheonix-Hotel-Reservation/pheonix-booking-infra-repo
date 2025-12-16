@@ -11,13 +11,13 @@ Complete infrastructure-as-code solution for deploying a production-ready Kubern
 ### Infrastructure Components
 - **VPC**: 10.0.0.0/16 with public/private subnets across 3 AZs
 - **IAM**: Comprehensive policies for cloud controllers (EC2, ELB, EBS)
-- **EC2**: 3 instances (t3.large, Ubuntu 22.04)
-  - 1 Master (control plane)
-  - 2 Workers (compute nodes)
+- **EC2**: 4 instances (Ubuntu 22.04)
+  - 1 Master (t3.large, control plane)
+  - 3 Workers (t3.xlarge, compute nodes)
 - **Security**: Security groups for all Kubernetes traffic
 
 ### Kubernetes Stack
-- **Kubernetes**: v1.28 (kubeadm)
+- **Kubernetes**: v1.34 (kubeadm)
 - **Container Runtime**: containerd with systemd cgroup
 - **CNI**: Calico (192.168.0.0/16)
 - **Cloud Provider**: External mode (required for AWS controllers)
@@ -130,7 +130,7 @@ terraform output
 - VPC with 6 subnets (3 public, 3 private)
 - Internet Gateway + NAT Gateway
 - IAM role with 4 policies
-- 3 EC2 instances with security group
+- 4 EC2 instances with security group (1 master + 3 workers)
 - Ansible inventory file at `../ansible/inventory.ini`
 
 ### Step 2: Deploy Kubernetes (Ansible)
@@ -244,7 +244,7 @@ kubectl get pvc test-pvc
 
 After deployment, verify:
 
-- [x] **Nodes Ready**: All 3 nodes show `Ready` status
+- [x] **Nodes Ready**: All 4 nodes show `Ready` status
 - [x] **CCM Running**: `aws-cloud-controller-manager` pod in kube-system
 - [x] **Provider ID**: Nodes have AWS provider ID (e.g., `aws:///us-east-1a/i-xxxxx`)
 - [x] **Calico**: One calico-node pod per node
@@ -337,7 +337,7 @@ kubectl run test-pod --image=nginx --overrides='
 ### Development Environment
 For testing, reduce costs:
 - Change instance type to `t3.medium` in `terraform/variables.tf`
-- Use 1 worker instead of 2 (set `node_count = 2`)
+- Use 1 or 2 workers instead of 3 (set `node_count = 2` or `node_count = 3`)
 - Stop instances when not in use:
   ```bash
   aws ec2 stop-instances --instance-ids $(terraform output -json | jq -r '.instances.value[]')

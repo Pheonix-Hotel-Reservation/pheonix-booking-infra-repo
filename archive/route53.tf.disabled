@@ -1,0 +1,102 @@
+# Route53 DNS configuration for Phoenix Hotel Reservation
+# Points all subdomains to the AWS Istio Ingress Gateway LoadBalancer
+
+data "aws_lb" "istio_ingress" {
+  tags = {
+    "service.k8s.aws/stack" = "istio-system/istio-ingressgateway"
+  }
+}
+
+# Get the hosted zone for pheonix.live
+data "aws_route53_zone" "main" {
+  name         = "pheonix.live"
+  private_zone = false
+}
+
+# Production Application
+resource "aws_route53_record" "prod" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "prod.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# Staging Application
+resource "aws_route53_record" "staging" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "pheonix-staging.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# Vault
+resource "aws_route53_record" "vault" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "vault.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# Grafana
+resource "aws_route53_record" "grafana" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "grafana.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# Kiali
+resource "aws_route53_record" "kiali" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "kiali.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# OpenSearch Dashboards
+resource "aws_route53_record" "opensearch" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "opensearch.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# Harbor Container Registry
+resource "aws_route53_record" "registry" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "registry.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# ArgoCD
+resource "aws_route53_record" "argocd" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "argocd.pheonix.live"
+  type    = "CNAME"
+  ttl     = 300
+  records = [data.aws_lb.istio_ingress.dns_name]
+}
+
+# Output the DNS names for verification
+output "dns_records" {
+  description = "All DNS records created"
+  value = {
+    production   = aws_route53_record.prod.fqdn
+    staging      = aws_route53_record.staging.fqdn
+    vault        = aws_route53_record.vault.fqdn
+    grafana      = aws_route53_record.grafana.fqdn
+    kiali        = aws_route53_record.kiali.fqdn
+    opensearch   = aws_route53_record.opensearch.fqdn
+    registry     = aws_route53_record.registry.fqdn
+    argocd       = aws_route53_record.argocd.fqdn
+    istio_lb_dns = data.aws_lb.istio_ingress.dns_name
+  }
+}

@@ -96,22 +96,22 @@
 
 - name: Add Kubernetes apt key
   apt_key:
-    url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+    url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_repo_version }}/deb/Release.key"
     state: present
     keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
 - name: Add Kubernetes repository
   apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ k8s_repo_version }}/deb/ /"
     state: present
     filename: kubernetes
 
 - name: Install Kubernetes packages
   apt:
     name:
-      - kubelet=1.28.*
-      - kubeadm=1.28.*
-      - kubectl=1.28.*
+      - "kubelet={{ k8s_full_version }}"
+      - "kubeadm={{ k8s_full_version }}"
+      - "kubectl={{ k8s_full_version }}"
     state: present
     update_cache: yes
 

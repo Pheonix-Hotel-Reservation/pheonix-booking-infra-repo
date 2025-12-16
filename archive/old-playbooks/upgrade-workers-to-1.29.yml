@@ -1,0 +1,104 @@
+---
+# Upgrade workers from 1.28 to 1.29 to match master
+- name: Upgrade Workers to 1.29
+  hosts: workers
+  become: yes
+  serial: 1
+
+  tasks:
+    - name: Check current version
+      command: kubelet --version
+      register: current_version
+
+    - name: Display current version
+      debug:
+        msg: "Current version: {{ current_version.stdout }}"
+
+    - name: Unhold Kubernetes packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: install
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Remove old Kubernetes repository
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+
+    - name: Remove old Kubernetes apt key
+      file:
+        path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        state: absent
+
+    - name: Add Kubernetes 1.29 apt key
+      apt_key:
+        url: "https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key"
+        state: present
+        keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Add Kubernetes 1.29 repository
+      apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /"
+        state: present
+        filename: kubernetes
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Drain node
+      command: "kubectl drain {{ hostvars[inventory_hostname]['private_dns'] }} --ignore-daemonsets --delete-emptydir-data"
+      delegate_to: "{{ groups['master'][0] }}"
+
+    - name: Upgrade kubeadm
+      apt:
+        name: "kubeadm=1.29.*"
+        state: present
+
+    - name: Upgrade kubelet config
+      command: kubeadm upgrade node
+
+    - name: Upgrade kubelet and kubectl
+      apt:
+        name:
+          - "kubelet=1.29.*"
+          - "kubectl=1.29.*"
+        state: present
+
+    - name: Restart kubelet
+      systemd:
+        name: kubelet
+        state: restarted
+        daemon_reload: yes
+
+    - name: Uncordon node
+      command: "kubectl uncordon {{ hostvars[inventory_hostname]['private_dns'] }}"
+      delegate_to: "{{ groups['master'][0] }}"
+
+    - name: Hold packages
+      dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Wait 10 seconds for node to stabilize
+      pause:
+        seconds: 10
+
+- name: Verify all nodes are on 1.29
+  hosts: master
+  become: yes
+  tasks:
+    - name: Check all node versions
+      command: kubectl get nodes
+      register: nodes_status
+
+    - name: Display nodes status
+      debug:
+        msg: "{{ nodes_status.stdout_lines }}"

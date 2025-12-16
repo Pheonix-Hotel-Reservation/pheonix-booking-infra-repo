@@ -1,0 +1,16 @@
+---
+# Variables specific to Kubernetes worker nodes
+
+# Kubelet Configuration
+kubelet_max_pods: 110
+kubelet_pod_manifest_path: "/etc/kubernetes/manifests"
+
+# Kubelet Extra Args
+kubelet_extra_args:
+  cloud-provider: "{{ cloud_provider }}"
+
+# Node Labels (optional)
+node_labels: {}
+
+# Node Taints (optional)
+node_taints: []

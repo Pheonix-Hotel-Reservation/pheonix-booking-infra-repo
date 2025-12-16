@@ -20,7 +20,7 @@ print_error() {
 }
 
 print_warning "This will destroy ALL infrastructure including:"
-print_warning "  - 3 EC2 instances"
+print_warning "  - 4 EC2 instances (1 master + 3 workers)"
 print_warning "  - VPC and networking"
 print_warning "  - IAM roles and policies"
 print_warning "  - All Kubernetes resources"

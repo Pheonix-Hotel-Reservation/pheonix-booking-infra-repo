@@ -31,3 +31,23 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Archive directory (optional - can be committed for history)
+# archive/
+
+# Ensure no state files ever get committed
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+
+# macOS files
+.DS_Store
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Temporary files
+*.tmp
+.*.swp

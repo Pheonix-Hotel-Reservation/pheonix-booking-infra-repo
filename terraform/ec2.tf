@@ -17,7 +17,7 @@ data "aws_ami" "ubuntu" {
 # SSH Key Pair
 resource "aws_key_pair" "k8s_key" {
   key_name   = var.ssh_key_name
-  public_key = file("~/.ssh/id_rsa.pub")
+  public_key = file(var.ssh_public_key_path)
 
   tags = {
     Name = "${var.cluster_name}-key"

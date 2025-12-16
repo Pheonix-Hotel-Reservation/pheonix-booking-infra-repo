@@ -1,0 +1,32 @@
+---
+# Global variables for all hosts
+
+# Kubernetes Configuration
+k8s_version: "1.34"
+k8s_full_version: "1.34.*"
+k8s_repo_version: "v1.34"
+
+# Container Runtime
+containerd_version: "1.7.28"
+
+# Networking
+pod_network_cidr: "192.168.0.0/16"
+service_cidr: "10.96.0.0/12"
+cluster_dns_domain: "cluster.local"
+
+# Cloud Provider
+cloud_provider: "external"
+
+# Calico CNI
+calico_version: "v3.27.0"
+
+# Component Versions
+etcd_data_dir: "/var/lib/etcd"
+kubernetes_pki_dir: "/etc/kubernetes/pki"
+
+# Certificate Validity
+ca_certificate_validity: "87600h0m0s"  # 10 years
+certificate_validity: "8760h0m0s"      # 1 year
+
+# Encryption
+encryption_algorithm: "RSA-2048"
