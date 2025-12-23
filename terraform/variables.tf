@@ -31,7 +31,7 @@ variable "worker_instance_type" {
 variable "node_count" {
   description = "Number of Kubernetes nodes"
   type        = number
-  default     = 4
+  default     = 5
 }
 
 variable "ssh_key_name" {
